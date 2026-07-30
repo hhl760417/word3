@@ -420,14 +420,14 @@
     updateMediaSession(parsed);
   }
 
-  // 5. 音频 API 路由生成器
+  // 5. 音频 API 路由生成器（已被修正为手机网络兼容版本）
   function getAudioUrl(text, lang) {
     if (lang === 'en-US') {
-      // 有道词典 TTS 音频接口（英美音质极佳）
+      // 有道词典美音接口
       return `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&type=2`;
     } else {
-      // 谷歌开放中文朗读接口
-      return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=zh-CN&client=tw-ob`;
+      // 百度 TTS 中文朗读接口（完美支持国内移动端网络）
+      return `https://fanyi.baidu.com/getvoice?lan=zh&spd=5&source=web&text=${encodeURIComponent(text)}`;
     }
   }
 
@@ -518,87 +518,4 @@
         }
         renderCard();
         playCurrentWord();
-      } else {
-        if (currentIndex < vocabList.length - 1) {
-          currentIndex++;
-          renderCard();
-          playCurrentWord();
-        } else {
-          stopAudio();
-          alert("已到达本词库最后一个词条！");
-        }
-      }
-    }, 1000);
-  }
-
-  function nextWord() {
-    const wasPlaying = isPlaying;
-    stopAudio();
-    const mode = document.getElementById('playMode').value;
-    if (mode === 'random') {
-      if (vocabList.length > 1) {
-        let randomIndex = currentIndex;
-        while (randomIndex === currentIndex) {
-          randomIndex = Math.floor(Math.random() * vocabList.length);
-        }
-        currentIndex = randomIndex;
-      }
-    } else {
-      if (currentIndex < vocabList.length - 1) {
-        currentIndex++;
-      }
-    }
-    renderCard();
-    if (wasPlaying) {
-      isPlaying = true;
-      document.getElementById('playBtn').innerText = '⏸ 暂停朗读';
-      playCurrentWord();
-    }
-  }
-
-  function prevWord() {
-    const wasPlaying = isPlaying;
-    stopAudio();
-    if (currentIndex > 0) {
-      currentIndex--;
-      renderCard();
-    }
-    if (wasPlaying) {
-      isPlaying = true;
-      document.getElementById('playBtn').innerText = '⏸ 暂停朗读';
-      playCurrentWord();
-    }
-  }
-
-  // 6. 注册 Media Session API（控制锁屏与下拉通知栏中的媒体播放界面）
-  function updateMediaSession(parsed) {
-    if ('mediaSession' in navigator) {
-      const transText = parsed.translations.map(t => t.type + ' ' + t.translation).join('; ');
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: parsed.word || '背单词 Web App',
-        artist: transText || '英语词汇学习',
-        album: `背词进度：${currentIndex + 1} / ${vocabList.length}`
-      });
-    }
-  }
-
-  function setupMediaSessionHandlers() {
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.setActionHandler('play', () => {
-        if (!isPlaying) togglePlay();
-      });
-      navigator.mediaSession.setActionHandler('pause', () => {
-        if (isPlaying) stopAudio();
-      });
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        prevWord();
-      });
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        nextWord();
-      });
-    }
-  }
-</script>
-
-</body>
-</html>
+      } else
