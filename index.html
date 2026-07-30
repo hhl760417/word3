@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>背单词 Web App</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #f4f6f9;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+    h1 { text-align: center; font-size: 24px; margin-top: 0; margin-bottom: 20px; }
+    
+    .panel {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border: 1px solid #e9ecef;
+    }
+    .panel-title {
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #495057;
+      font-size: 14px;
+    }
+    .control-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .control-row:last-child { margin-bottom: 0; }
+    
+    label { font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+    select, button {
+      padding: 8px 12px;
+      font-size: 14px;
+      border-radius: 6px;
+      border: 1px solid #ced4da;
+      background-color: #fff;
+    }
+    button {
+      background-color: #0d6efd;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background-color: #0b5ed7; }
+    button.secondary { background-color: #6c757d; }
+    button.secondary:hover { background-color: #5c636a; }
+
+    .card {
+      min-height: 280px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      position: relative;
+      background: #fafafa;
+    }
+    .word-title {
+      font-size: 36px;
+      font-weight: bold;
+      color: #2b2b2b;
+      margin-bottom: 8px;
+    }
+    .phonetic {
+      font-size: 16px;
+      color: #666;
+      margin-bottom: 16px;
+    }
+    .phonetic span { margin-right: 15px; }
+    
+    .section-block { margin-top: 12px; }
+    .trans-item { font-size: 16px; margin-bottom: 4px; }
+    .trans-type {
+      font-weight: bold;
+      color: #0d6efd;
+      display: inline-block;
+      margin-right: 8px;
+    }
+    
+    .sub-title { font-size: 14px; font-weight: bold; color: #888; margin-top: 12px; margin-bottom: 4px; }
+    .phrase-item, .sentence-item { font-size: 14px; color: #444; margin-bottom: 6px; }
+    .translation-text { color: #666; margin-left: 6px; }
+
+    .progress {
+      text-align: right;
+      font-size: 13px;
+      color: #888;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>背单词 Web App</h1>
+
+  <div class="panel">
+    <div class="control-row">
+      <div class="panel-title" style="margin:0; min-width: 70px;">词库选择：</div>
+      <select id="fileSelect" onchange="loadVocabulary()">
+        <option value="">正在获取文件列表...</option>
+      </select>
+      
+      <span style="margin-left: 10px;">朗读次数：</span>
+      <select id="repeatCount">
+        <option value="1">1次</option>
+        <option value="2" selected>2次</option>
+        <option value="3">3次</option>
+      </select>
+
+      <span style="margin-left: 10px;">播放模式：</span>
+      <select id="playMode">
+        <option value="sequence" selected>🔁 顺序播放</option>
+        <option value="random">🔀 随机播放</option>
+      </select>
+    </div>
+
+    <div class="panel-title" style="margin-top: 15px;">内容显示控制：</div>
+    <div class="control-row">
+      <label><input type="checkbox" id="showWord" checked onchange="renderCard()"> 单词</label>
+      <label><input type="checkbox" id="showPhonetic" checked onchange="renderCard()"> 音标</label>
+      <label><input type="checkbox" id="showTrans" checked onchange="renderCard()"> 中文释义</label>
+      <label><input type="checkbox" id="showPhrases" checked onchange="renderCard()"> 短语</label>
+      <label><input type="checkbox" id="showSentences" checked onchange="renderCard()"> 例句</label>
+    </div>
+  </div>
+
+  <div class="card" id="wordCard">等待加载词库...</div>
+
+  <div class="progress" id="progressInfo">0 / 0</div>
+
+  <div class="control-row" style="justify-content: center; margin-top: 20px; gap: 15px;">
+    <button class="secondary" onclick="prevWord()">上一个</button>
+    <button id="playBtn" onclick="togglePlay()">▶ 点击开始自动朗读</button>
+    <button class="secondary" onclick="nextWord()">下一个</button>
+  </div>
+</div>
+
+<script>
+  const API_URL = 'https://api.github.com/repos/KyleBing/english-vocabulary/contents/json_original/json-full';
+  const CDN_BASE_URL = 'https://cdn.jsdelivr.net/gh/KyleBing/english-vocabulary@master/json_original/json-full/';
+  
+  let vocabList = [];
+  let currentIndex = 0;
+  let isPlaying = false;
+  let autoTimer = null;
+
+  const synth = window.speechSynthesis;
+
+  window.onload = () => {
+    fetchFileList();
+  };
+
+  // 1. 获取文件列表
+  async function fetchFileList() {
+    const select = document.getElementById('fileSelect');
+    try {
+      const res = await fetch(API_URL);
+      if (!res.ok) throw new Error('读取目录失败');
+      const files = await res.json();
+      const jsonFiles = files.filter(f => f.name.endsWith('.json'));
+
+      if (jsonFiles.length === 0) {
+        select.innerHTML = '<option value="">未找到 JSON 文件</option>';
+        return;
+      }
+
+      select.innerHTML = '';
+      jsonFiles.forEach(file => {
+        const opt = document.createElement('option');
+        opt.value = file.name;
+        opt.textContent = file.name;
+        select.appendChild(opt);
+      });
+
+      loadVocabulary();
+    } catch (err) {
+      console.error(err);
+      select.innerHTML = '<option value="">列表获取失败，请重试</option>';
+      document.getElementById('wordCard').innerHTML = '<span style="color:red;">无法获取词库文件列表，请检查网络。</span>';
+    }
+  }
+
+  // 2. 解析 JSON 结构
+  function parseWordItem(item) {
+    if (!item) return { word: '', uk: '', us: '', translations: [], phrases: [], sentences: [] };
+
+    const inner = item.content?.word?.content || {};
+
+    const word = item.headWord || item.word || inner.wordHead || '';
+    const uk = inner.ukphone || item.uk || '';
+    const us = inner.usphone || item.us || '';
+
+    let translations = [];
+    if (inner.trans && Array.isArray(inner.trans)) {
+      translations = inner.trans.map(t => ({
+        type: t.pos || t.type || '',
+        translation: t.tranCn || t.translation || ''
+      }));
+    } else if (item.translations && Array.isArray(item.translations)) {
+      translations = item.translations;
+    }
+
+    let phrases = [];
+    const rawPhrases = inner.phrase?.phrases || item.phrases;
+    if (rawPhrases && Array.isArray(rawPhrases)) {
+      phrases = rawPhrases.map(p => ({
+        phrase: p.pContent || p.phrase || '',
+        translation: p.pCn || p.translation || ''
+      }));
+    }
+
+    let sentences = [];
+    const rawSentences = inner.sentence?.sentences || item.sentences;
+    if (rawSentences && Array.isArray(rawSentences)) {
+      sentences = rawSentences.map(s => ({
+        sentence: s.sContent || s.sentence || '',
+        translation: s.sCn || s.translation || ''
+      }));
+    }
+
+    return { word, uk, us, translations, phrases, sentences };
+  }
+
+  // 3. 加载词库
+  async function loadVocabulary() {
+    stopAudio();
+    const fileName = document.getElementById('fileSelect').value;
+    if (!fileName) return;
+
+    const card = document.getElementById('wordCard');
+    card.innerHTML = '正在读取词库，请稍候...';
+
+    try {
+      const response = await fetch(CDN_BASE_URL + encodeURIComponent(fileName));
+      if (!response.ok) throw new Error("网络响应异常");
+      vocabList = await response.json();
+      currentIndex = 0;
+      renderCard();
+    } catch (err) {
+      card.innerHTML = '<span style="color:red;">词库加载失败，请检查网络连接。</span>';
+      console.error('加载 JSON 失败:', err);
+    }
+  }
+
+  // 4. 渲染界面
+  function renderCard() {
+    if (!vocabList || vocabList.length === 0) return;
+
+    const parsed = parseWordItem(vocabList[currentIndex]);
+
+    const showWord = document.getElementById('showWord').checked;
+    const showPhonetic = document.getElementById('showPhonetic').checked;
+    const showTrans = document.getElementById('showTrans').checked;
+    const showPhrases = document.getElementById('showPhrases').checked;
+    const showSentences = document.getElementById('showSentences').checked;
+
+    let html = '';
+
+    if (showWord && parsed.word) {
+      html += `<div class="word-title">${parsed.word}</div>`;
+    }
+
+    if (showPhonetic && (parsed.uk || parsed.us)) {
+      html += `<div class="phonetic">`;
+      if (parsed.uk) html += `<span>英 [/${parsed.uk}/]</span>`;
+      if (parsed.us) html += `<span>美 [/${parsed.us}/]</span>`;
+      html += `</div>`;
+    }
+
+    if (showTrans && parsed.translations.length > 0) {
+      html += `<div class="section-block">`;
+      parsed.translations.forEach(t => {
+        html += `<div class="trans-item"><span class="trans-type">${t.type}</span>${t.translation}</div>`;
+      });
+      html += `</div>`;
+    }
+
+    if (showPhrases && parsed.phrases.length > 0) {
+      html += `<div class="section-block"><div class="sub-title">常见短语：</div>`;
+      parsed.phrases.forEach(p => {
+        html += `<div class="phrase-item"><b>${p.phrase}</b><span class="translation-text">${p.translation}</span></div>`;
+      });
+      html += `</div>`;
+    }
+
+    if (showSentences && parsed.sentences.length > 0) {
+      html += `<div class="section-block"><div class="sub-title">例句：</div>`;
+      parsed.sentences.forEach(s => {
+        html += `<div class="sentence-item"><div>${s.sentence}</div><div class="translation-text">${s.translation}</div></div>`;
+      });
+      html += `</div>`;
+    }
+
+    document.getElementById('wordCard').innerHTML = html || '<span style="color:#aaa;">（无内容显示，请勾选显示设置）</span>';
+    document.getElementById('progressInfo').innerText = `${currentIndex + 1} / ${vocabList.length}`;
+  }
+
+  // 5. 播放控制
+  function togglePlay() {
+    if (isPlaying) {
+      stopAudio();
+    } else {
+      synth.resume();
+      isPlaying = true;
+      document.getElementById('playBtn').innerText = '⏸ 暂停朗读';
+      playCurrentWord();
+    }
+  }
+
+  function stopAudio() {
+    isPlaying = false;
+    if (autoTimer) clearTimeout(autoTimer);
+    synth.cancel();
+    document.getElementById('playBtn').innerText = '▶ 点击开始自动朗读';
+  }
+
+  // 6. 朗读核心逻辑
+  function playCurrentWord() {
+    if (!isPlaying || currentIndex >= vocabList.length) {
+      stopAudio();
+      return;
+    }
+
+    const parsed = parseWordItem(vocabList[currentIndex]);
+    const repeatTimes = parseInt(document.getElementById('repeatCount').value, 10);
+    
+    let chineseText = parsed.translations.map(t => t.translation).join('，');
+
+    synth.cancel();
+    if (synth.paused) synth.resume();
+
+    let playlist = [];
+
+    // 英文播放
+    if (parsed.word) {
+      for (let i = 0; i < repeatTimes; i++) {
+        playlist.push({ text: parsed.word, lang: 'en-US' });
+      }
+    }
+
+    // 中文播放
+    if (chineseText) {
+      playlist.push({ text: chineseText, lang: 'zh-CN' });
+    }
+
+    if (playlist.length === 0) {
+      scheduleNext();
+      return;
+    }
+
+    function speakIndex(idx) {
+      if (!isPlaying) return;
+
+      if (idx >= playlist.length) {
+        scheduleNext();
+        return;
+      }
+
+      const item = playlist[idx];
+      const utterance = new SpeechSynthesisUtterance(item.text);
+      utterance.lang = item.lang;
+      utterance.rate = 0.9;
+
+      utterance.onend = () => speakIndex(idx + 1);
+      utterance.onerror = (e) => {
+        console.error('朗读出错：', e);
+        speakIndex(idx + 1);
+      };
+
+      synth.speak(utterance);
+    }
+
+    speakIndex(0);
+  }
+
+  // 切换到下一个（处理顺序/随机）
+  function scheduleNext() {
+    if (!isPlaying) return;
+
+    autoTimer = setTimeout(() => {
+      if (!isPlaying) return;
+
+      const mode = document.getElementById('playMode').value;
+
+      if (mode === 'random') {
+        // 随机选择下一个词条索引
+        if (vocabList.length > 1) {
+          let randomIndex = currentIndex;
+          while (randomIndex === currentIndex) {
+            randomIndex = Math.floor(Math.random() * vocabList.length);
+          }
+          currentIndex = randomIndex;
+        }
+        renderCard();
+        playCurrentWord();
+      } else {
+        // 顺序播放下一个词条
+        if (currentIndex < vocabList.length - 1) {
+          currentIndex++;
+          renderCard();
+          playCurrentWord();
+        } else {
+          stopAudio();
+          alert("已到达本词库最后一个词条！");
+        }
+      }
+    }, 1000);
+  }
+
+  function nextWord() {
+    stopAudio();
+    const mode = document.getElementById('playMode').value;
+    if (mode === 'random') {
+      if (vocabList.length > 1) {
+        let randomIndex = currentIndex;
+        while (randomIndex === currentIndex) {
+          randomIndex = Math.floor(Math.random() * vocabList.length);
+        }
+        currentIndex = randomIndex;
+      }
+    } else {
+      if (currentIndex < vocabList.length - 1) {
+        currentIndex++;
+      }
+    }
+    renderCard();
+  }
+
+  function prevWord() {
+    stopAudio();
+    if (currentIndex > 0) {
+      currentIndex--;
+      renderCard();
+    }
+  }
+</script>
+
+</body>
+</html>
