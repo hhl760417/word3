@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>背单词 Web App</title>
+  <title>背单词 Web App (支持后台/锁屏播放)</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -43,7 +43,6 @@
       font-size: 14px;
     }
     
-    /* 控件栅格化流式布局 */
     .control-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -72,10 +71,9 @@
       border: 1px solid #ced4da;
       background-color: #fff;
       outline: none;
-      height: 42px; /* 提升触控面积 */
+      height: 42px;
     }
 
-    /* 显隐多选框网格 */
     .checkbox-group {
       display: flex;
       flex-wrap: wrap;
@@ -95,7 +93,6 @@
       cursor: pointer;
     }
 
-    /* 单词卡片样式 */
     .card {
       min-height: 260px;
       border: 1px solid #e0e0e0;
@@ -140,7 +137,6 @@
       margin-top: 8px;
     }
 
-    /* 底部操作按钮区域 */
     .action-group {
       display: flex;
       gap: 10px;
@@ -168,22 +164,21 @@
       flex: 1;
     }
     #playBtn {
-      flex: 2; /* 播放按钮更突出 */
+      flex: 2;
     }
 
-    /* ---------------- 手机竖屏（窄屏）移动端适配 ---------------- */
     @media (max-width: 600px) {
       body { padding: 10px; }
       .container { padding: 14px; border-radius: 10px; }
       
       .control-grid {
-        grid-template-columns: 1fr; /* 手机上下拉框单列全宽显示 */
+        grid-template-columns: 1fr;
         gap: 10px;
       }
       
       .checkbox-group {
         display: grid;
-        grid-template-columns: repeat(3, 1fr); /* 复选框分成 3 列并排 */
+        grid-template-columns: repeat(3, 1fr);
         gap: 10px 8px;
       }
 
@@ -191,7 +186,7 @@
       .card { min-height: 220px; padding: 16px; }
 
       .action-group {
-        flex-direction: row; /* 保持一行，按比例分配 */
+        flex-direction: row;
       }
       button.secondary {
         flex: 1;
@@ -210,6 +205,8 @@
 
 <div class="container">
   <h1>背单词 Web App</h1>
+
+  <audio id="audioPlayer" preload="auto" style="display:none;"></audio>
 
   <div class="panel">
     <div class="control-grid">
@@ -268,10 +265,11 @@
   let isPlaying = false;
   let autoTimer = null;
 
-  const synth = window.speechSynthesis;
+  const audioPlayer = document.getElementById('audioPlayer');
 
   window.onload = () => {
     fetchFileList();
+    setupMediaSessionHandlers();
   };
 
   // 1. 获取文件列表
@@ -417,14 +415,26 @@
 
     document.getElementById('wordCard').innerHTML = html || '<span style="color:#aaa;">（无内容显示，请勾选显示设置）</span>';
     document.getElementById('progressInfo').innerText = `${currentIndex + 1} / ${vocabList.length}`;
+
+    // 更新系统锁屏/后台的媒体卡片信息
+    updateMediaSession(parsed);
   }
 
-  // 5. 播放控制
+  // 5. 音频 API 路由生成器
+  function getAudioUrl(text, lang) {
+    if (lang === 'en-US') {
+      // 有道词典 TTS 音频接口（英美音质极佳）
+      return `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&type=2`;
+    } else {
+      // 谷歌开放中文朗读接口
+      return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=zh-CN&client=tw-ob`;
+    }
+  }
+
   function togglePlay() {
     if (isPlaying) {
       stopAudio();
     } else {
-      synth.resume();
       isPlaying = true;
       document.getElementById('playBtn').innerText = '⏸ 暂停朗读';
       playCurrentWord();
@@ -434,11 +444,11 @@
   function stopAudio() {
     isPlaying = false;
     if (autoTimer) clearTimeout(autoTimer);
-    synth.cancel();
+    audioPlayer.pause();
+    audioPlayer.onended = null;
     document.getElementById('playBtn').innerText = '▶ 开始朗读';
   }
 
-  // 6. 朗读核心逻辑
   function playCurrentWord() {
     if (!isPlaying || currentIndex >= vocabList.length) {
       stopAudio();
@@ -447,22 +457,20 @@
 
     const parsed = parseWordItem(vocabList[currentIndex]);
     const repeatTimes = parseInt(document.getElementById('repeatCount').value, 10);
-    
     let chineseText = parsed.translations.map(t => t.translation).join('，');
-
-    synth.cancel();
-    if (synth.paused) synth.resume();
 
     let playlist = [];
 
+    // 1. 构建英文音频队列
     if (parsed.word) {
       for (let i = 0; i < repeatTimes; i++) {
-        playlist.push({ text: parsed.word, lang: 'en-US' });
+        playlist.push(getAudioUrl(parsed.word, 'en-US'));
       }
     }
 
+    // 2. 构建中文音频队列
     if (chineseText) {
-      playlist.push({ text: chineseText, lang: 'zh-CN' });
+      playlist.push(getAudioUrl(chineseText, 'zh-CN'));
     }
 
     if (playlist.length === 0) {
@@ -470,29 +478,26 @@
       return;
     }
 
-    function speakIndex(idx) {
+    function playAudioSequence(index) {
       if (!isPlaying) return;
 
-      if (idx >= playlist.length) {
+      if (index >= playlist.length) {
         scheduleNext();
         return;
       }
 
-      const item = playlist[idx];
-      const utterance = new SpeechSynthesisUtterance(item.text);
-      utterance.lang = item.lang;
-      utterance.rate = 0.9;
+      audioPlayer.src = playlist[index];
+      audioPlayer.play().catch(err => {
+        console.warn('音频播放中断或被拦截，继续播放下一个:', err);
+        playAudioSequence(index + 1);
+      });
 
-      utterance.onend = () => speakIndex(idx + 1);
-      utterance.onerror = (e) => {
-        console.error('朗读出错：', e);
-        speakIndex(idx + 1);
+      audioPlayer.onended = () => {
+        playAudioSequence(index + 1);
       };
-
-      synth.speak(utterance);
     }
 
-    speakIndex(0);
+    playAudioSequence(0);
   }
 
   function scheduleNext() {
@@ -527,6 +532,7 @@
   }
 
   function nextWord() {
+    const wasPlaying = isPlaying;
     stopAudio();
     const mode = document.getElementById('playMode').value;
     if (mode === 'random') {
@@ -543,13 +549,53 @@
       }
     }
     renderCard();
+    if (wasPlaying) {
+      isPlaying = true;
+      document.getElementById('playBtn').innerText = '⏸ 暂停朗读';
+      playCurrentWord();
+    }
   }
 
   function prevWord() {
+    const wasPlaying = isPlaying;
     stopAudio();
     if (currentIndex > 0) {
       currentIndex--;
       renderCard();
+    }
+    if (wasPlaying) {
+      isPlaying = true;
+      document.getElementById('playBtn').innerText = '⏸ 暂停朗读';
+      playCurrentWord();
+    }
+  }
+
+  // 6. 注册 Media Session API（控制锁屏与下拉通知栏中的媒体播放界面）
+  function updateMediaSession(parsed) {
+    if ('mediaSession' in navigator) {
+      const transText = parsed.translations.map(t => t.type + ' ' + t.translation).join('; ');
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: parsed.word || '背单词 Web App',
+        artist: transText || '英语词汇学习',
+        album: `背词进度：${currentIndex + 1} / ${vocabList.length}`
+      });
+    }
+  }
+
+  function setupMediaSessionHandlers() {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (!isPlaying) togglePlay();
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        if (isPlaying) stopAudio();
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        prevWord();
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        nextWord();
+      });
     }
   }
 </script>
