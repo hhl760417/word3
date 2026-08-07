@@ -276,9 +276,18 @@
 
     <div class="setting-group">
       <div class="setting-label">切换方式</div>
-      <select id="switchMode">
+      <select id="switchMode" onchange="toggleIntervalOption()">
         <option value="auto" selected>⏩ 自动切换下一个</option>
         <option value="manual">⏸ 手动切换下一个</option>
+      </select>
+    </div>
+
+    <div class="setting-group" id="intervalGroup">
+      <div class="setting-label">自动切换间隔时间</div>
+      <select id="intervalTime">
+        <option value="3000" selected>⏱ 3 秒</option>
+        <option value="5000">⏱ 5 秒</option>
+        <option value="10000">⏱ 10 秒</option>
       </select>
     </div>
 
@@ -312,6 +321,7 @@
 
   window.onload = () => {
     fetchFileList();
+    toggleIntervalOption();
   };
 
   // 弹窗控制逻辑
@@ -326,6 +336,17 @@
   function closeModalOnOverlay(e) {
     if (e.target.id === 'settingsModal') {
       closeSettings();
+    }
+  }
+
+  // 根据“切换方式”控制“间隔时间”下拉框的显示/隐藏
+  function toggleIntervalOption() {
+    const switchMode = document.getElementById('switchMode').value;
+    const intervalGroup = document.getElementById('intervalGroup');
+    if (switchMode === 'auto') {
+      intervalGroup.style.display = 'block';
+    } else {
+      intervalGroup.style.display = 'none';
     }
   }
 
@@ -564,6 +585,9 @@
   function scheduleNext() {
     if (!isPlaying) return;
 
+    // 获取设置的间隔时间毫秒值
+    const delay = parseInt(document.getElementById('intervalTime').value, 10) || 3000;
+
     autoTimer = setTimeout(() => {
       if (!isPlaying) return;
 
@@ -589,7 +613,7 @@
           alert("已到达本词库最后一个词条！");
         }
       }
-    }, 1000);
+    }, delay);
   }
 
   function nextWord() {
